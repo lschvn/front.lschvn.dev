@@ -14,3 +14,7 @@ helm-charts
 .idea
 coverage*
 tests/
+# Exclude pre-compiled JS files from src/ to prevent Vite from picking them
+# up instead of the TypeScript source files during the Docker build
+src/**/*.js
+src/**/*.js.map
