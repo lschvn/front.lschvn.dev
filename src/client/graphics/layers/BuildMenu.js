@@ -1,0 +1,476 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+import { css, html, LitElement } from "lit";
+import { customElement, state } from "lit/decorators.js";
+import { translateText } from "../../../client/Utils";
+import { BuildMenus, UnitType, } from "../../../core/game/Game";
+import { CloseViewEvent, MouseDownEvent, ShowBuildMenuEvent, ShowEmojiMenuEvent, } from "../../InputHandler";
+import { BuildUnitIntentEvent, SendUpgradeStructureIntentEvent, } from "../../Transport";
+import { renderNumber } from "../../Utils";
+import warshipIcon from "/images/BattleshipIconWhite.svg?url";
+import airbaseIcon from "/images/AirbaseIconWhite.svg?url";
+import cityIcon from "/images/CityIconWhite.svg?url";
+import factoryIcon from "/images/FactoryIconWhite.svg?url";
+import goldCoinIcon from "/images/GoldCoinIcon.svg?url";
+import mirvIcon from "/images/MIRVIcon.svg?url";
+import missileSiloIcon from "/images/MissileSiloIconWhite.svg?url";
+import hydrogenBombIcon from "/images/MushroomCloudIconWhite.svg?url";
+import atomBombIcon from "/images/NukeIconWhite.svg?url";
+import portIcon from "/images/PortIcon.svg?url";
+import samlauncherIcon from "/images/SamLauncherIconWhite.svg?url";
+import shieldIcon from "/images/ShieldIconWhite.svg?url";
+import targetIcon from "/images/TargetIconWhite.svg?url";
+export const buildTable = [
+    [
+        {
+            unitType: UnitType.AtomBomb,
+            icon: atomBombIcon,
+            description: "build_menu.desc.atom_bomb",
+            key: "unit_type.atom_bomb",
+            countable: false,
+        },
+        {
+            unitType: UnitType.MIRV,
+            icon: mirvIcon,
+            description: "build_menu.desc.mirv",
+            key: "unit_type.mirv",
+            countable: false,
+        },
+        {
+            unitType: UnitType.HydrogenBomb,
+            icon: hydrogenBombIcon,
+            description: "build_menu.desc.hydrogen_bomb",
+            key: "unit_type.hydrogen_bomb",
+            countable: false,
+        },
+        {
+            unitType: UnitType.Warship,
+            icon: warshipIcon,
+            description: "build_menu.desc.warship",
+            key: "unit_type.warship",
+            countable: true,
+        },
+        {
+            unitType: UnitType.Airbase,
+            icon: airbaseIcon,
+            description: "build_menu.desc.airbase",
+            key: "unit_type.airbase",
+            countable: true,
+        },
+        {
+            unitType: UnitType.RadarStation,
+            icon: targetIcon,
+            description: "build_menu.desc.radar_station",
+            key: "unit_type.radar_station",
+            countable: true,
+        },
+        {
+            unitType: UnitType.Port,
+            icon: portIcon,
+            description: "build_menu.desc.port",
+            key: "unit_type.port",
+            countable: true,
+        },
+        {
+            unitType: UnitType.MissileSilo,
+            icon: missileSiloIcon,
+            description: "build_menu.desc.missile_silo",
+            key: "unit_type.missile_silo",
+            countable: true,
+        },
+        {
+            unitType: UnitType.AABattery,
+            icon: shieldIcon,
+            description: "build_menu.desc.aa_battery",
+            key: "unit_type.aa_battery",
+            countable: true,
+        },
+        {
+            unitType: UnitType.SAMLauncher,
+            icon: samlauncherIcon,
+            description: "build_menu.desc.sam_launcher",
+            key: "unit_type.sam_launcher",
+            countable: true,
+        },
+        {
+            unitType: UnitType.DefensePost,
+            icon: shieldIcon,
+            description: "build_menu.desc.defense_post",
+            key: "unit_type.defense_post",
+            countable: true,
+        },
+        {
+            unitType: UnitType.City,
+            icon: cityIcon,
+            description: "build_menu.desc.city",
+            key: "unit_type.city",
+            countable: true,
+        },
+        {
+            unitType: UnitType.Factory,
+            icon: factoryIcon,
+            description: "build_menu.desc.factory",
+            key: "unit_type.factory",
+            countable: true,
+        },
+    ],
+];
+export const flattenedBuildTable = buildTable.flat();
+let BuildMenu = class BuildMenu extends LitElement {
+    constructor() {
+        super(...arguments);
+        this.playerBuildables = null;
+        this.filteredBuildTable = buildTable;
+        this._hidden = true;
+    }
+    init() {
+        this.eventBus.on(ShowBuildMenuEvent, (e) => {
+            if (!this.game.myPlayer()?.isAlive()) {
+                return;
+            }
+            if (!this._hidden) {
+                // Players sometimes hold control while building a unit,
+                // so if the menu is already open, ignore the event.
+                return;
+            }
+            const clickedCell = this.transformHandler.screenToWorldCoordinates(e.x, e.y);
+            if (clickedCell === null) {
+                return;
+            }
+            if (!this.game.isValidCoord(clickedCell.x, clickedCell.y)) {
+                return;
+            }
+            const tile = this.game.ref(clickedCell.x, clickedCell.y);
+            this.showMenu(tile);
+        });
+        this.eventBus.on(CloseViewEvent, () => this.hideMenu());
+        this.eventBus.on(ShowEmojiMenuEvent, () => this.hideMenu());
+        this.eventBus.on(MouseDownEvent, () => this.hideMenu());
+    }
+    tick() {
+        if (!this._hidden) {
+            this.refresh();
+        }
+    }
+    canBuildOrUpgrade(item) {
+        if (this.game?.myPlayer() === null || this.playerBuildables === null) {
+            return false;
+        }
+        const unit = this.playerBuildables.find((u) => u.type === item.unitType);
+        return unit ? unit.canBuild !== false || unit.canUpgrade !== false : false;
+    }
+    cost(item) {
+        for (const bu of this.playerBuildables ?? []) {
+            if (bu.type === item.unitType) {
+                return bu.cost;
+            }
+        }
+        return 0n;
+    }
+    count(item) {
+        const player = this.game?.myPlayer();
+        if (!player) {
+            return "?";
+        }
+        return player.totalUnitLevels(item.unitType).toString();
+    }
+    sendBuildOrUpgrade(buildableUnit, tile) {
+        if (buildableUnit.canUpgrade !== false) {
+            this.eventBus.emit(new SendUpgradeStructureIntentEvent(buildableUnit.canUpgrade, buildableUnit.type));
+        }
+        else if (buildableUnit.canBuild) {
+            const rocketDirectionUp = buildableUnit.type === UnitType.AtomBomb ||
+                buildableUnit.type === UnitType.HydrogenBomb
+                ? this.uiState.rocketDirectionUp
+                : undefined;
+            this.eventBus.emit(new BuildUnitIntentEvent(buildableUnit.type, tile, rocketDirectionUp));
+        }
+        this.hideMenu();
+    }
+    render() {
+        return html `
+      <div
+        class="build-menu ${this._hidden ? "hidden" : ""}"
+        @contextmenu=${(e) => e.preventDefault()}
+      >
+        ${this.filteredBuildTable.map((row) => html `
+            <div class="build-row">
+              ${row.map((item) => {
+            const buildableUnit = this.playerBuildables?.find((bu) => bu.type === item.unitType);
+            if (buildableUnit === undefined) {
+                return html ``;
+            }
+            const enabled = buildableUnit.canBuild !== false ||
+                buildableUnit.canUpgrade !== false;
+            return html `
+                  <button
+                    class="build-button"
+                    @click=${() => this.sendBuildOrUpgrade(buildableUnit, this.clickedTile)}
+                    ?disabled=${!enabled}
+                    title=${!enabled
+                ? translateText("build_menu.not_enough_money")
+                : ""}
+                  >
+                    <img
+                      src=${item.icon}
+                      alt="${item.unitType}"
+                      width="40"
+                      height="40"
+                    />
+                    <span class="build-name"
+                      >${item.key && translateText(item.key)}</span
+                    >
+                    <span class="build-description"
+                      >${item.description &&
+                translateText(item.description)}</span
+                    >
+                    <span class="build-cost" translate="no">
+                      ${renderNumber(this.game && this.game.myPlayer() ? this.cost(item) : 0)}
+                      <img
+                        src=${goldCoinIcon}
+                        alt="gold"
+                        width="12"
+                        height="12"
+                        class="align-middle"
+                      />
+                    </span>
+                    ${item.countable
+                ? html `<div class="build-count-chip">
+                          <span class="build-count">${this.count(item)}</span>
+                        </div>`
+                : ""}
+                  </button>
+                `;
+        })}
+            </div>
+          `)}
+      </div>
+    `;
+    }
+    hideMenu() {
+        this._hidden = true;
+        this.requestUpdate();
+    }
+    showMenu(clickedTile) {
+        this.clickedTile = clickedTile;
+        this._hidden = false;
+        this.refresh();
+    }
+    refresh() {
+        this.game
+            .myPlayer()
+            ?.buildables(this.clickedTile, BuildMenus.types)
+            .then((buildables) => {
+            this.playerBuildables = buildables;
+            this.requestUpdate();
+        });
+        // remove disabled buildings from the buildtable
+        this.filteredBuildTable = this.getBuildableUnits();
+    }
+    getBuildableUnits() {
+        return buildTable.map((row) => row.filter((item) => !this.game?.config()?.isUnitDisabled(item.unitType)));
+    }
+    get isVisible() {
+        return !this._hidden;
+    }
+};
+BuildMenu.styles = css `
+    :host {
+      display: block;
+    }
+    .build-menu {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 9999;
+      background-color: #1e1e1e;
+      padding: 15px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      max-width: 95vw;
+      max-height: 95vh;
+      overflow-y: auto;
+    }
+    .build-description {
+      font-size: 0.6rem;
+    }
+    .build-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      width: 100%;
+    }
+    .build-button {
+      position: relative;
+      width: 120px;
+      height: 140px;
+      border: 2px solid #444;
+      background-color: #2c2c2c;
+      color: white;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      margin: 8px;
+      padding: 10px;
+      gap: 5px;
+    }
+    .build-button:not(:disabled):hover {
+      background-color: #3a3a3a;
+      transform: scale(1.05);
+      border-color: #666;
+    }
+    .build-button:not(:disabled):active {
+      background-color: #4a4a4a;
+      transform: scale(0.95);
+    }
+    .build-button:disabled {
+      background-color: #1a1a1a;
+      border-color: #333;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .build-button:disabled img {
+      opacity: 0.5;
+    }
+    .build-button:disabled .build-cost {
+      color: #ff4444;
+    }
+    .build-icon {
+      font-size: 40px;
+      margin-bottom: 5px;
+    }
+    .build-name {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 5px;
+      text-align: center;
+    }
+    .build-cost {
+      font-size: 14px;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .build-count-chip {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background-color: #2c2c2c;
+      color: white;
+      padding: 2px 10px;
+      border-radius: 10000px;
+      transition: all 0.3s ease;
+      font-size: 12px;
+      display: flex;
+      justify-content: center;
+      align-content: center;
+      border: 1px solid #444;
+    }
+    .build-button:not(:disabled):hover > .build-count-chip {
+      background-color: #3a3a3a;
+      border-color: #666;
+    }
+    .build-button:not(:disabled):active > .build-count-chip {
+      background-color: #4a4a4a;
+    }
+    .build-button:disabled > .build-count-chip {
+      background-color: #1a1a1a;
+      border-color: #333;
+      cursor: not-allowed;
+    }
+    .build-count {
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .build-menu {
+        padding: 10px;
+        max-height: 80vh;
+        width: 80vw;
+      }
+      .build-button {
+        width: 140px;
+        height: 120px;
+        margin: 4px;
+        padding: 6px;
+        gap: 5px;
+      }
+      .build-icon {
+        font-size: 28px;
+      }
+      .build-name {
+        font-size: 12px;
+        margin-bottom: 3px;
+      }
+      .build-cost {
+        font-size: 11px;
+      }
+      .build-count {
+        font-weight: bold;
+        font-size: 10px;
+      }
+      .build-count-chip {
+        padding: 1px 5px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .build-menu {
+        padding: 8px;
+        max-height: 70vh;
+      }
+      .build-button {
+        width: calc(50% - 6px);
+        height: 100px;
+        margin: 3px;
+        padding: 4px;
+        border-width: 1px;
+      }
+      .build-icon {
+        font-size: 24px;
+      }
+      .build-name {
+        font-size: 10px;
+        margin-bottom: 2px;
+      }
+      .build-cost {
+        font-size: 9px;
+      }
+      .build-count {
+        font-weight: bold;
+        font-size: 8px;
+      }
+      .build-count-chip {
+        padding: 0 3px;
+      }
+      .build-button img {
+        width: 24px;
+        height: 24px;
+      }
+      .build-cost img {
+        width: 10px;
+        height: 10px;
+      }
+    }
+  `;
+__decorate([
+    state()
+], BuildMenu.prototype, "_hidden", void 0);
+BuildMenu = __decorate([
+    customElement("build-menu")
+], BuildMenu);
+export { BuildMenu };
+//# sourceMappingURL=BuildMenu.js.map

@@ -1,0 +1,329 @@
+import { Cell, Structures, UnitType, } from "../game/Game";
+import { calculateBoundingBox, getMode, inscribed, simpleHash } from "../Util";
+// Per-game traversal state used by calculateClusters() to avoid per-player buffers.
+const traversalStates = new WeakMap();
+export class PlayerExecution {
+    constructor(player) {
+        this.player = player;
+        this.ticksPerClusterCalc = 20;
+        this.lastCalc = 0;
+        this.active = true;
+    }
+    activeDuringSpawnPhase() {
+        return false;
+    }
+    init(mg, ticks) {
+        this.mg = mg;
+        this.config = mg.config();
+        this.lastCalc =
+            ticks + (simpleHash(this.player.name()) % this.ticksPerClusterCalc);
+    }
+    tick(ticks) {
+        this.player.decayRelations();
+        for (const u of this.player.units()) {
+            if (!Structures.has(u.type())) {
+                continue;
+            }
+            const owner = this.mg.owner(u.tile());
+            if (!owner?.isPlayer()) {
+                u.delete();
+                continue;
+            }
+            if (owner === this.player) {
+                continue;
+            }
+            const captor = this.mg.player(owner.id());
+            if (u.type() === UnitType.DefensePost) {
+                u.decreaseLevel(captor);
+                if (u.isActive()) {
+                    captor.captureUnit(u);
+                }
+            }
+            else {
+                captor.captureUnit(u);
+            }
+        }
+        if (!this.player.isAlive()) {
+            this.removeOnDeath();
+            this.active = false;
+            this.mg.stats().playerKilled(this.player, ticks);
+            return;
+        }
+        const troopInc = this.config.troopIncreaseRate(this.player) *
+            this.player.supplySummary().reinforcementMultiplier;
+        this.player.addTroops(troopInc);
+        const goldFromWorkers = BigInt(Math.floor(Number(this.config.goldAdditionRate(this.player)) *
+            this.player.supplySummary().economicMultiplier));
+        this.player.addGold(goldFromWorkers);
+        // Record stats
+        this.mg.stats().goldWork(this.player, goldFromWorkers);
+        for (const alliance of this.player.alliances()) {
+            if (alliance.expiresAt() <= this.mg.ticks()) {
+                alliance.expire();
+            }
+        }
+        for (const embargo of this.player.getEmbargoes()) {
+            if (embargo.isTemporary &&
+                this.mg.ticks() - embargo.createdAt >
+                    this.mg.config().temporaryEmbargoDuration()) {
+                this.player.stopEmbargo(embargo.target);
+            }
+        }
+        if (ticks - this.lastCalc > this.ticksPerClusterCalc) {
+            if (this.player.lastTileChange() > this.lastCalc) {
+                this.lastCalc = ticks;
+                const start = performance.now();
+                this.removeClusters();
+                const end = performance.now();
+                if (end - start > 1000) {
+                    console.log(`player ${this.player.name()}, took ${end - start}ms`);
+                }
+            }
+        }
+    }
+    removeClusters() {
+        const clusters = this.calculateClusters();
+        if (clusters.length === 0) {
+            this.player.largestClusterBoundingBox = null;
+            return;
+        }
+        // Find the largest cluster with a single linear scan (O(n)).
+        let largestIndex = 0;
+        let largestSize = clusters[0].size;
+        for (let i = 1; i < clusters.length; i++) {
+            const size = clusters[i].size;
+            if (size > largestSize) {
+                largestSize = size;
+                largestIndex = i;
+            }
+        }
+        const largestCluster = clusters[largestIndex];
+        if (largestCluster === undefined)
+            throw new Error("No clusters");
+        const largestClusterBox = calculateBoundingBox(this.mg, largestCluster);
+        this.player.largestClusterBoundingBox = largestClusterBox;
+        const surroundedBy = this.surroundedBySamePlayer(largestCluster, largestClusterBox);
+        if (surroundedBy && !surroundedBy.isFriendly(this.player)) {
+            this.removeCluster(largestCluster);
+        }
+        // Process remaining clusters
+        for (let i = 0; i < clusters.length; i++) {
+            if (i === largestIndex)
+                continue;
+            const cluster = clusters[i];
+            if (this.isSurrounded(cluster)) {
+                this.removeCluster(cluster);
+            }
+        }
+    }
+    surroundedBySamePlayer(cluster, clusterBox) {
+        const enemies = new Set();
+        for (const tile of cluster) {
+            let hasUnownedNeighbor = false;
+            if (this.mg.isOceanShore(tile) || this.mg.isOnEdgeOfMap(tile)) {
+                return false;
+            }
+            this.mg.forEachNeighbor(tile, (n) => {
+                if (!this.mg.hasOwner(n)) {
+                    hasUnownedNeighbor = true;
+                    return;
+                }
+                const ownerId = this.mg.ownerID(n);
+                if (ownerId !== this.player.smallID()) {
+                    enemies.add(ownerId);
+                }
+            });
+            if (hasUnownedNeighbor) {
+                return false;
+            }
+            if (enemies.size !== 1) {
+                return false;
+            }
+        }
+        if (enemies.size !== 1) {
+            return false;
+        }
+        const enemy = this.mg.playerBySmallID(Array.from(enemies)[0]);
+        const enemyBox = calculateBoundingBox(this.mg, enemy.borderTiles());
+        if (inscribed(enemyBox, clusterBox)) {
+            return enemy;
+        }
+        return false;
+    }
+    isSurrounded(cluster) {
+        let hasEnemy = false;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const tr of cluster) {
+            if (this.mg.isShore(tr) || this.mg.isOnEdgeOfMap(tr)) {
+                return false;
+            }
+            this.mg.forEachNeighbor(tr, (n) => {
+                const owner = this.mg.owner(n);
+                if (owner.isPlayer() && this.mg.ownerID(n) !== this.player.smallID()) {
+                    hasEnemy = true;
+                    const x = this.mg.x(n);
+                    const y = this.mg.y(n);
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            });
+        }
+        if (!hasEnemy) {
+            return false;
+        }
+        const clusterBox = calculateBoundingBox(this.mg, cluster);
+        const enemyBox = { min: new Cell(minX, minY), max: new Cell(maxX, maxY) };
+        return inscribed(enemyBox, clusterBox);
+    }
+    removeCluster(cluster) {
+        for (const t of cluster) {
+            if (this.mg?.ownerID(t) !== this.player?.smallID()) {
+                // Other removeCluster operations could change tile owners,
+                // so double check.
+                return;
+            }
+        }
+        const capturing = this.getCapturingPlayer(cluster);
+        if (capturing === null) {
+            return;
+        }
+        const firstTile = cluster.values().next().value;
+        if (!firstTile) {
+            return;
+        }
+        const tiles = this.floodFillWithGen(this.bumpGeneration(), this.traversalState().visited, [firstTile], (tile, cb) => this.mg.forEachNeighbor(tile, cb), (tile) => this.mg.ownerID(tile) === this.player.smallID());
+        if (this.player.numTilesOwned() === tiles.size) {
+            this.mg.conquerPlayer(capturing, this.player);
+        }
+        for (const tile of tiles) {
+            capturing.conquer(tile);
+        }
+    }
+    getCapturingPlayer(cluster) {
+        const neighbors = new Map();
+        for (const t of cluster) {
+            this.mg.forEachNeighbor(t, (neighbor) => {
+                const owner = this.mg.owner(neighbor);
+                if (owner.isPlayer() &&
+                    owner !== this.player &&
+                    !owner.isFriendly(this.player)) {
+                    neighbors.set(owner, (neighbors.get(owner) ?? 0) + 1);
+                }
+            });
+        }
+        // If there are no enemies, return null
+        if (neighbors.size === 0) {
+            return null;
+        }
+        // Get the largest attack from the neighbors
+        let largestNeighborAttack = null;
+        let largestTroopCount = 0;
+        for (const [neighbor] of neighbors) {
+            for (const attack of neighbor.outgoingAttacks()) {
+                if (attack.target() === this.player) {
+                    if (attack.troops() > largestTroopCount) {
+                        largestTroopCount = attack.troops();
+                        largestNeighborAttack = neighbor;
+                    }
+                }
+            }
+        }
+        if (largestNeighborAttack !== null) {
+            return largestNeighborAttack;
+        }
+        // There are no ongoing attacks, so find the enemy with the largest border.
+        return getMode(neighbors);
+    }
+    calculateClusters() {
+        const borderTiles = this.player.borderTiles();
+        if (borderTiles.size === 0)
+            return [];
+        const state = this.traversalState();
+        const currentGen = this.bumpGeneration();
+        const visited = state.visited;
+        const clusters = [];
+        for (const startTile of borderTiles) {
+            if (visited[startTile] === currentGen)
+                continue;
+            const cluster = this.floodFillWithGen(currentGen, visited, [startTile], (tile, cb) => this.mg.forEachNeighborWithDiag(tile, cb), (tile) => borderTiles.has(tile));
+            clusters.push(cluster);
+        }
+        return clusters;
+    }
+    owner() {
+        if (this.player === null) {
+            throw new Error("Not initialized");
+        }
+        return this.player;
+    }
+    isActive() {
+        return this.active;
+    }
+    traversalState() {
+        const totalTiles = this.mg.width() * this.mg.height();
+        let state = traversalStates.get(this.mg);
+        if (!state || state.visited.length < totalTiles) {
+            state = {
+                visited: new Uint32Array(totalTiles),
+                gen: 0,
+            };
+            traversalStates.set(this.mg, state);
+        }
+        return state;
+    }
+    bumpGeneration() {
+        const state = this.traversalState();
+        state.gen++;
+        if (state.gen === 0xffffffff) {
+            state.visited.fill(0);
+            state.gen = 1;
+        }
+        return state.gen;
+    }
+    floodFillWithGen(currentGen, visited, startTiles, neighborFn, includeFn) {
+        const result = new Set();
+        const stack = [];
+        for (const start of startTiles) {
+            if (visited[start] === currentGen)
+                continue;
+            if (!includeFn(start))
+                continue;
+            visited[start] = currentGen;
+            result.add(start);
+            stack.push(start);
+        }
+        while (stack.length > 0) {
+            const tile = stack.pop();
+            neighborFn(tile, (neighbor) => {
+                if (visited[neighbor] === currentGen) {
+                    return;
+                }
+                if (!includeFn(neighbor)) {
+                    return;
+                }
+                visited[neighbor] = currentGen;
+                result.add(neighbor);
+                stack.push(neighbor);
+            });
+        }
+        return result;
+    }
+    removeOnDeath() {
+        // Player (bot, human, nation) has no tiles
+        // Delete any remaining gold, non-nuke units and alliances
+        const gold = this.player.gold();
+        this.player.removeGold(gold);
+        this.player.units().forEach((u) => {
+            if (u.type() !== UnitType.AtomBomb &&
+                u.type() !== UnitType.HydrogenBomb &&
+                u.type() !== UnitType.MIRVWarhead &&
+                u.type() !== UnitType.MIRV) {
+                u.delete();
+            }
+        });
+        this.player.removeAllAlliances();
+    }
+}
+//# sourceMappingURL=PlayerExecution.js.map

@@ -1,0 +1,232 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+import { html, LitElement } from "lit";
+import { customElement } from "lit/decorators.js";
+import { BuildMenus, UnitType, } from "../../../core/game/Game";
+import { GhostStructureChangedEvent, ToggleStructureEvent, } from "../../InputHandler";
+import { renderNumber, translateText } from "../../Utils";
+import warshipIcon from "/images/BattleshipIconWhite.svg?url";
+import airbaseIcon from "/images/AirbaseIconWhite.svg?url";
+import cityIcon from "/images/CityIconWhite.svg?url";
+import factoryIcon from "/images/FactoryIconWhite.svg?url";
+import goldCoinIcon from "/images/GoldCoinIcon.svg?url";
+import mirvIcon from "/images/MIRVIcon.svg?url";
+import missileSiloIcon from "/images/MissileSiloIconWhite.svg?url";
+import hydrogenBombIcon from "/images/MushroomCloudIconWhite.svg?url";
+import atomBombIcon from "/images/NukeIconWhite.svg?url";
+import portIcon from "/images/PortIcon.svg?url";
+import samLauncherIcon from "/images/SamLauncherIconWhite.svg?url";
+import defensePostIcon from "/images/ShieldIconWhite.svg?url";
+import radarStationIcon from "/images/TargetIconWhite.svg?url";
+let UnitDisplay = class UnitDisplay extends LitElement {
+    constructor() {
+        super(...arguments);
+        this.playerBuildables = null;
+        this.keybinds = {};
+        this._cities = 0;
+        this._warships = 0;
+        this._factories = 0;
+        this._airbases = 0;
+        this._radarStations = 0;
+        this._missileSilo = 0;
+        this._port = 0;
+        this._defensePost = 0;
+        this._aaBattery = 0;
+        this._samLauncher = 0;
+        this.allDisabled = false;
+        this._hoveredUnit = null;
+    }
+    createRenderRoot() {
+        return this;
+    }
+    init() {
+        const config = this.game.config();
+        const savedKeybinds = localStorage.getItem("settings.keybinds");
+        if (savedKeybinds) {
+            try {
+                this.keybinds = JSON.parse(savedKeybinds);
+            }
+            catch (e) {
+                console.warn("Invalid keybinds JSON:", e);
+            }
+        }
+        this.allDisabled = BuildMenus.types.every((u) => config.isUnitDisabled(u));
+        this.requestUpdate();
+    }
+    cost(item) {
+        for (const bu of this.playerBuildables ?? []) {
+            if (bu.type === item) {
+                return bu.cost;
+            }
+        }
+        return 0n;
+    }
+    canBuild(item) {
+        if (this.game?.config().isUnitDisabled(item))
+            return false;
+        const player = this.game?.myPlayer();
+        switch (item) {
+            case UnitType.AtomBomb:
+            case UnitType.HydrogenBomb:
+            case UnitType.MIRV:
+                return (this.cost(item) <= (player?.gold() ?? 0n) &&
+                    (player?.units(UnitType.MissileSilo).length ?? 0) > 0);
+            case UnitType.Warship:
+                return (this.cost(item) <= (player?.gold() ?? 0n) &&
+                    (player?.units(UnitType.Port).length ?? 0) > 0);
+            default:
+                return this.cost(item) <= (player?.gold() ?? 0n);
+        }
+    }
+    tick() {
+        const player = this.game?.myPlayer();
+        if (!player)
+            return;
+        player.buildables(undefined, BuildMenus.types).then((buildables) => {
+            this.playerBuildables = buildables;
+        });
+        this._cities = player.totalUnitLevels(UnitType.City);
+        this._missileSilo = player.totalUnitLevels(UnitType.MissileSilo);
+        this._airbases = player.totalUnitLevels(UnitType.Airbase);
+        this._radarStations = player.totalUnitLevels(UnitType.RadarStation);
+        this._port = player.totalUnitLevels(UnitType.Port);
+        this._defensePost = player.totalUnitLevels(UnitType.DefensePost);
+        this._aaBattery = player.totalUnitLevels(UnitType.AABattery);
+        this._samLauncher = player.totalUnitLevels(UnitType.SAMLauncher);
+        this._factories = player.totalUnitLevels(UnitType.Factory);
+        this._warships = player.totalUnitLevels(UnitType.Warship);
+        this.requestUpdate();
+    }
+    render() {
+        const myPlayer = this.game?.myPlayer();
+        if (!this.game ||
+            !myPlayer ||
+            this.game.inSpawnPhase() ||
+            !myPlayer.isAlive()) {
+            return null;
+        }
+        if (this.allDisabled) {
+            return null;
+        }
+        return html `
+      <div class="border-t border-white/10 p-0.5 w-full">
+        <div
+          class="grid grid-rows-1 auto-cols-max grid-flow-col gap-0.5 w-fit mx-auto"
+        >
+          ${this.renderUnitItem(cityIcon, this._cities, UnitType.City, "city", this.keybinds["buildCity"]?.key ?? "1")}
+          ${this.renderUnitItem(factoryIcon, this._factories, UnitType.Factory, "factory", this.keybinds["buildFactory"]?.key ?? "2")}
+          ${this.renderUnitItem(airbaseIcon, this._airbases, UnitType.Airbase, "airbase", this.keybinds["buildAirbase"]?.key ?? "-")}
+          ${this.renderUnitItem(radarStationIcon, this._radarStations, UnitType.RadarStation, "radar_station", this.keybinds["buildRadarStation"]?.key ?? "[")}
+          ${this.renderUnitItem(portIcon, this._port, UnitType.Port, "port", this.keybinds["buildPort"]?.key ?? "3")}
+          ${this.renderUnitItem(defensePostIcon, this._defensePost, UnitType.DefensePost, "defense_post", this.keybinds["buildDefensePost"]?.key ?? "4")}
+          ${this.renderUnitItem(defensePostIcon, this._aaBattery, UnitType.AABattery, "aa_battery", this.keybinds["buildAABattery"]?.key ?? "=")}
+          ${this.renderUnitItem(missileSiloIcon, this._missileSilo, UnitType.MissileSilo, "missile_silo", this.keybinds["buildMissileSilo"]?.key ?? "5")}
+          ${this.renderUnitItem(samLauncherIcon, this._samLauncher, UnitType.SAMLauncher, "sam_launcher", this.keybinds["buildSamLauncher"]?.key ?? "6")}
+          ${this.renderUnitItem(warshipIcon, this._warships, UnitType.Warship, "warship", this.keybinds["buildWarship"]?.key ?? "7")}
+          ${this.renderUnitItem(atomBombIcon, null, UnitType.AtomBomb, "atom_bomb", this.keybinds["buildAtomBomb"]?.key ?? "8")}
+          ${this.renderUnitItem(hydrogenBombIcon, null, UnitType.HydrogenBomb, "hydrogen_bomb", this.keybinds["buildHydrogenBomb"]?.key ?? "9")}
+          ${this.renderUnitItem(mirvIcon, null, UnitType.MIRV, "mirv", this.keybinds["buildMIRV"]?.key ?? "0")}
+        </div>
+      </div>
+    `;
+    }
+    renderUnitItem(icon, number, unitType, structureKey, hotkey) {
+        if (this.game.config().isUnitDisabled(unitType)) {
+            return html ``;
+        }
+        const selected = this.uiState.ghostStructure === unitType;
+        const hovered = this._hoveredUnit === unitType;
+        const displayHotkey = hotkey
+            .replace("Digit", "")
+            .replace("Key", "")
+            .toUpperCase();
+        return html `
+      <div
+        class="flex flex-col items-center relative"
+        @mouseenter=${() => {
+            this._hoveredUnit = unitType;
+            this.requestUpdate();
+        }}
+        @mouseleave=${() => {
+            this._hoveredUnit = null;
+            this.requestUpdate();
+        }}
+      >
+        ${hovered
+            ? html `
+              <div
+                class="absolute -top-[250%] left-1/2 -translate-x-1/2 text-gray-200 text-center w-max text-xs bg-gray-800/90 backdrop-blur-xs rounded-sm p-1 z-[100] shadow-lg pointer-events-none"
+              >
+                <div class="font-bold text-sm mb-1">
+                  ${translateText("unit_type." + structureKey)}${` [${displayHotkey}]`}
+                </div>
+                <div class="p-2">
+                  ${translateText("build_menu.desc." + structureKey)}
+                </div>
+                <div class="flex items-center justify-center gap-1">
+                  <img src=${goldCoinIcon} width="13" height="13" />
+                  <span class="text-yellow-300"
+                    >${renderNumber(this.cost(unitType))}</span
+                  >
+                </div>
+              </div>
+            `
+            : null}
+        <div
+          class="${this.canBuild(unitType)
+            ? ""
+            : "opacity-40"} border border-slate-500 rounded-sm px-0.5 pb-0.5 flex items-center gap-0.5 cursor-pointer
+             ${selected ? "hover:bg-gray-400/10" : "hover:bg-gray-800"}
+             rounded-sm text-white ${selected ? "bg-slate-400/20" : ""}"
+          @click=${() => {
+            if (selected) {
+                this.uiState.ghostStructure = null;
+                this.eventBus?.emit(new GhostStructureChangedEvent(null));
+            }
+            else if (this.canBuild(unitType)) {
+                this.uiState.ghostStructure = unitType;
+                this.eventBus?.emit(new GhostStructureChangedEvent(unitType));
+            }
+            this.requestUpdate();
+        }}
+          @mouseenter=${() => {
+            switch (unitType) {
+                case UnitType.AtomBomb:
+                case UnitType.HydrogenBomb:
+                    this.eventBus?.emit(new ToggleStructureEvent([
+                        UnitType.MissileSilo,
+                        UnitType.SAMLauncher,
+                    ]));
+                    break;
+                case UnitType.Warship:
+                    this.eventBus?.emit(new ToggleStructureEvent([UnitType.Port]));
+                    break;
+                default:
+                    this.eventBus?.emit(new ToggleStructureEvent([unitType]));
+            }
+        }}
+          @mouseleave=${() => this.eventBus?.emit(new ToggleStructureEvent(null))}
+        >
+          ${html `<div class="ml-0.5 text-[10px] relative -top-1 text-gray-400">
+            ${displayHotkey}
+          </div>`}
+          <div class="flex items-center gap-0.5 pt-0.5">
+            <img src=${icon} alt=${structureKey} class="align-middle size-5" />
+            ${number !== null
+            ? html `<span class="text-xs">${renderNumber(number)}</span>`
+            : null}
+          </div>
+        </div>
+      </div>
+    `;
+    }
+};
+UnitDisplay = __decorate([
+    customElement("unit-display")
+], UnitDisplay);
+export { UnitDisplay };
+//# sourceMappingURL=UnitDisplay.js.map

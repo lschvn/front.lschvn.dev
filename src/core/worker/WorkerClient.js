@@ -1,0 +1,219 @@
+import { Cell, } from "../game/Game";
+import { generateID } from "../Util";
+export class WorkerClient {
+    constructor(gameStartInfo, clientID) {
+        this.gameStartInfo = gameStartInfo;
+        this.clientID = clientID;
+        this.isInitialized = false;
+        this.worker = new Worker(new URL("./Worker.worker.ts", import.meta.url), {
+            type: "module",
+        });
+        this.messageHandlers = new Map();
+        // Set up global message handler
+        this.worker.addEventListener("message", this.handleWorkerMessage.bind(this));
+    }
+    handleWorkerMessage(event) {
+        const message = event.data;
+        switch (message.type) {
+            case "game_update":
+                if (this.gameUpdateCallback && message.gameUpdate) {
+                    this.gameUpdateCallback(message.gameUpdate);
+                }
+                break;
+            case "game_update_batch":
+                if (this.gameUpdateCallback && message.gameUpdates) {
+                    for (const gu of message.gameUpdates) {
+                        this.gameUpdateCallback(gu);
+                    }
+                }
+                break;
+            case "initialized":
+            default:
+                if (message.id && this.messageHandlers.has(message.id)) {
+                    const handler = this.messageHandlers.get(message.id);
+                    handler(message);
+                    this.messageHandlers.delete(message.id);
+                }
+                break;
+        }
+    }
+    initialize() {
+        return new Promise((resolve, reject) => {
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "initialized") {
+                    this.isInitialized = true;
+                    resolve();
+                }
+            });
+            this.worker.postMessage({
+                type: "init",
+                id: messageId,
+                gameStartInfo: this.gameStartInfo,
+                clientID: this.clientID,
+            });
+            // Add timeout for initialization
+            setTimeout(() => {
+                if (!this.isInitialized) {
+                    this.messageHandlers.delete(messageId);
+                    reject(new Error("Worker initialization timeout"));
+                }
+            }, 20000); // 20 second timeout
+        });
+    }
+    start(gameUpdate) {
+        if (!this.isInitialized) {
+            throw new Error("Failed to initialize pathfinder");
+        }
+        this.gameUpdateCallback = gameUpdate;
+    }
+    sendTurn(turn) {
+        if (!this.isInitialized) {
+            throw new Error("Worker not initialized");
+        }
+        this.worker.postMessage({
+            type: "turn",
+            turn,
+        });
+    }
+    playerProfile(playerID) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "player_profile_result" &&
+                    message.result !== undefined) {
+                    resolve(message.result);
+                }
+            });
+            this.worker.postMessage({
+                type: "player_profile",
+                id: messageId,
+                playerID: playerID,
+            });
+        });
+    }
+    playerBorderTiles(playerID) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "player_border_tiles_result" &&
+                    message.result !== undefined) {
+                    resolve(message.result);
+                }
+            });
+            this.worker.postMessage({
+                type: "player_border_tiles",
+                id: messageId,
+                playerID: playerID,
+            });
+        });
+    }
+    playerInteraction(playerID, x, y, units) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "player_actions_result" &&
+                    message.result !== undefined) {
+                    resolve(message.result);
+                }
+            });
+            this.worker.postMessage({
+                type: "player_actions",
+                id: messageId,
+                playerID,
+                x,
+                y,
+                units,
+            });
+        });
+    }
+    playerBuildables(playerID, x, y, units) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "player_buildables_result" &&
+                    message.result !== undefined) {
+                    resolve(message.result);
+                }
+            });
+            this.worker.postMessage({
+                type: "player_buildables",
+                id: messageId,
+                playerID,
+                x,
+                y,
+                units,
+            });
+        });
+    }
+    attackAveragePosition(playerID, attackID) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "attack_average_position_result" &&
+                    message.x !== undefined &&
+                    message.y !== undefined) {
+                    if (message.x === null || message.y === null) {
+                        resolve(null);
+                    }
+                    else {
+                        resolve(new Cell(message.x, message.y));
+                    }
+                }
+            });
+            this.worker.postMessage({
+                type: "attack_average_position",
+                id: messageId,
+                playerID: playerID,
+                attackID: attackID,
+            });
+        });
+    }
+    transportShipSpawn(playerID, targetTile) {
+        return new Promise((resolve, reject) => {
+            if (!this.isInitialized) {
+                reject(new Error("Worker not initialized"));
+                return;
+            }
+            const messageId = generateID();
+            this.messageHandlers.set(messageId, (message) => {
+                if (message.type === "transport_ship_spawn_result" &&
+                    message.result !== undefined) {
+                    resolve(message.result);
+                }
+            });
+            this.worker.postMessage({
+                type: "transport_ship_spawn",
+                id: messageId,
+                playerID: playerID,
+                targetTile: targetTile,
+            });
+        });
+    }
+    cleanup() {
+        this.worker.terminate();
+        this.messageHandlers.clear();
+        this.gameUpdateCallback = undefined;
+    }
+}
+//# sourceMappingURL=WorkerClient.js.map

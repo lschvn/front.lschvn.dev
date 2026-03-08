@@ -1,0 +1,13 @@
+export const SUBMARINE_COST = 325000;
+export const SUBMARINE_COST_CAP = 1250000;
+export const SUBMARINE_MAX_HEALTH = 700;
+export const SUBMARINE_ATTACK_RANGE = 8;
+export const SUBMARINE_ATTACK_RATE = 18;
+export const SUBMARINE_TRANSPORT_DAMAGE = 120;
+export const SUBMARINE_WARSHIP_DAMAGE = 350;
+export const SUBMARINE_ATTACK_REVEAL_TICKS = 35;
+export const SONAR_STATION_COST = 175000;
+export const SONAR_STATION_COST_CAP = 500000;
+export const SONAR_STATION_CONSTRUCTION_TICKS = 4 * 10;
+export const SONAR_STATION_REVEAL_RADIUS = 90;
+//# sourceMappingURL=NavalStealthBalance.js.map

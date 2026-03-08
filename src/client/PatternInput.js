@@ -1,0 +1,150 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+import { LitElement, html } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
+import { renderPatternPreview } from "./components/PatternButton";
+import { getPlayerCosmetics } from "./Cosmetics";
+import { crazyGamesSDK } from "./CrazyGamesSDK";
+import { translateText } from "./Utils";
+let PatternInput = class PatternInput extends LitElement {
+    constructor() {
+        super(...arguments);
+        this.pattern = null;
+        this.selectedColor = null;
+        this.isLoading = true;
+        this.showSelectLabel = false;
+        this.adaptiveSize = false;
+        this._abortController = null;
+        this._onPatternSelected = async () => {
+            const cosmetics = await getPlayerCosmetics();
+            this.selectedColor = cosmetics.color?.color ?? null;
+            this.pattern = cosmetics.pattern ?? null;
+        };
+    }
+    onInputClick(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.dispatchEvent(new CustomEvent("pattern-input-click", {
+            bubbles: true,
+            composed: true,
+        }));
+    }
+    async connectedCallback() {
+        super.connectedCallback();
+        this._abortController = new AbortController();
+        this.isLoading = true;
+        const cosmetics = await getPlayerCosmetics();
+        this.selectedColor = cosmetics.color?.color ?? null;
+        this.pattern = cosmetics.pattern ?? null;
+        if (!this.isConnected)
+            return;
+        this.isLoading = false;
+        window.addEventListener("pattern-selected", this._onPatternSelected, {
+            signal: this._abortController.signal,
+        });
+    }
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._abortController) {
+            this._abortController.abort();
+            this._abortController = null;
+        }
+    }
+    createRenderRoot() {
+        return this;
+    }
+    getIsDefaultPattern() {
+        return this.pattern === null && this.selectedColor === null;
+    }
+    shouldShowSelectLabel() {
+        return this.showSelectLabel && this.getIsDefaultPattern();
+    }
+    applyAdaptiveSize() {
+        if (!this.adaptiveSize) {
+            this.style.removeProperty("width");
+            this.style.removeProperty("height");
+            return;
+        }
+        const showSelect = this.showSelectLabel && this.getIsDefaultPattern();
+        this.style.setProperty("height", "3rem");
+        this.style.setProperty("width", showSelect ? "clamp(6.5rem, 28vw, 9.5rem)" : "3rem");
+    }
+    updated() {
+        this.applyAdaptiveSize();
+    }
+    render() {
+        if (crazyGamesSDK.isOnCrazyGames()) {
+            return html ``;
+        }
+        const showSelect = this.shouldShowSelectLabel();
+        const buttonTitle = translateText("territory_patterns.title");
+        // Show loading state
+        if (this.isLoading) {
+            return html `
+        <button
+          id="pattern-input"
+          class="pattern-btn m-0 p-0 w-full h-full flex cursor-pointer justify-center items-center focus:outline-none focus:ring-0 bg-[color-mix(in_oklab,var(--frenchBlue)_75%,black)] rounded-lg overflow-hidden"
+          disabled
+        >
+          <span
+            class="w-6 h-6 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"
+          ></span>
+        </button>
+      `;
+        }
+        let previewContent;
+        if (this.pattern) {
+            previewContent = renderPatternPreview(this.pattern, 128, 128);
+        }
+        else {
+            previewContent = renderPatternPreview(null, 128, 128);
+        }
+        return html `
+      <button
+        id="pattern-input"
+        class="pattern-btn m-0 p-0 w-full h-full flex cursor-pointer justify-center items-center focus:outline-none focus:ring-0 transition-all duration-200 hover:scale-105 bg-[color-mix(in_oklab,var(--frenchBlue)_75%,black)] hover:brightness-[1.08] active:brightness-[0.95] rounded-lg overflow-hidden"
+        title=${buttonTitle}
+        @click=${this.onInputClick}
+      >
+        <span
+          class=${showSelect
+            ? "hidden"
+            : "w-full h-full overflow-hidden flex items-center justify-center [&>img]:object-cover [&>img]:w-full [&>img]:h-full [&>img]:pointer-events-none"}
+        >
+          ${!showSelect ? previewContent : null}
+        </span>
+        ${showSelect
+            ? html `<span
+              class="text-[10px] font-black text-white uppercase leading-none break-words w-full text-center px-1"
+            >
+              ${translateText("territory_patterns.select_skin")}
+            </span>`
+            : null}
+      </button>
+    `;
+    }
+};
+__decorate([
+    state()
+], PatternInput.prototype, "pattern", void 0);
+__decorate([
+    state()
+], PatternInput.prototype, "selectedColor", void 0);
+__decorate([
+    state()
+], PatternInput.prototype, "isLoading", void 0);
+__decorate([
+    property({ type: Boolean, attribute: "show-select-label" })
+], PatternInput.prototype, "showSelectLabel", void 0);
+__decorate([
+    property({ type: Boolean, attribute: "adaptive-size" })
+], PatternInput.prototype, "adaptiveSize", void 0);
+PatternInput = __decorate([
+    customElement("pattern-input")
+], PatternInput);
+export { PatternInput };
+//# sourceMappingURL=PatternInput.js.map

@@ -1,0 +1,418 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+import { LitElement, html } from "lit";
+import { customElement, state } from "lit/decorators.js";
+import { attackModeTroopCommitment, DEFAULT_ATTACK_MODE, } from "../../../core/configuration/AttackModeBalance";
+import { AttackMode } from "../../../core/game/Game";
+import { AttackModeCycleEvent, AttackRatioEvent } from "../../InputHandler";
+import { renderNumber, renderTroops } from "../../Utils";
+import blitzIcon from "/images/attack-modes/blitz.svg?url";
+import goldCoinIcon from "/images/GoldCoinIcon.svg?url";
+import raidIcon from "/images/attack-modes/raid.svg?url";
+import siegeIcon from "/images/attack-modes/siege.svg?url";
+import soldierIcon from "/images/SoldierIcon.svg?url";
+import swordIcon from "/images/SwordIcon.svg?url";
+const ATTACK_MODE_UI = [
+    {
+        mode: AttackMode.Blitz,
+        label: "Blitz",
+        icon: blitzIcon,
+        description: "Fast commitment and capture. Higher attacker losses and weaker into fortified lines.",
+    },
+    {
+        mode: AttackMode.Siege,
+        label: "Siege",
+        icon: siegeIcon,
+        description: "Slow advance with lower losses. Suppresses frontline defenses and grinds nearby buildings.",
+    },
+    {
+        mode: AttackMode.Raid,
+        label: "Raid",
+        icon: raidIcon,
+        description: "Low capture priority. Disrupts ports, factories, cities, trade ships, and transports when exposed.",
+    },
+];
+let ControlPanel = class ControlPanel extends LitElement {
+    constructor() {
+        super(...arguments);
+        this.attackRatio = 0.2;
+        this.attackMode = DEFAULT_ATTACK_MODE;
+        this._isVisible = false;
+        this._attackingTroops = 0;
+        this._troopRateIsIncreasing = true;
+    }
+    getTickIntervalMs() {
+        return 100;
+    }
+    init() {
+        this.attackRatio = Number(localStorage.getItem("settings.attackRatio") ?? "0.2");
+        const savedMode = localStorage.getItem("settings.attackMode");
+        if (savedMode &&
+            Object.values(AttackMode).includes(savedMode)) {
+            this.attackMode = savedMode;
+        }
+        this.uiState.attackRatio = this.attackRatio;
+        this.uiState.attackMode = this.attackMode;
+        this.eventBus.on(AttackRatioEvent, (event) => {
+            let newAttackRatio = this.attackRatio + event.attackRatio / 100;
+            if (newAttackRatio < 0.01) {
+                newAttackRatio = 0.01;
+            }
+            if (newAttackRatio > 1) {
+                newAttackRatio = 1;
+            }
+            if (newAttackRatio === 0.11 && this.attackRatio === 0.01) {
+                // If we're changing the ratio from 1%, then set it to 10% instead of 11% to keep a consistency
+                newAttackRatio = 0.1;
+            }
+            this.attackRatio = newAttackRatio;
+            this.onAttackRatioChange(this.attackRatio);
+        });
+        this.eventBus.on(AttackModeCycleEvent, () => this.cycleAttackMode());
+    }
+    tick() {
+        if (!this._isVisible && !this.game.inSpawnPhase()) {
+            this.setVisibile(true);
+        }
+        const player = this.game.myPlayer();
+        if (player === null || !player.isAlive()) {
+            this.setVisibile(false);
+            return;
+        }
+        this.updateTroopIncrease();
+        this._maxTroops = this.game.config().maxTroops(player);
+        this._gold = player.gold();
+        this._troops = player.troops();
+        this._attackingTroops = player
+            .outgoingAttacks()
+            .map((a) => a.troops)
+            .reduce((a, b) => a + b, 0);
+        this.troopRate = this.game.config().troopIncreaseRate(player) * 10;
+        this.requestUpdate();
+    }
+    updateTroopIncrease() {
+        const player = this.game?.myPlayer();
+        if (player === null)
+            return;
+        const troopIncreaseRate = this.game.config().troopIncreaseRate(player);
+        this._troopRateIsIncreasing =
+            troopIncreaseRate >= this._lastTroopIncreaseRate;
+        this._lastTroopIncreaseRate = troopIncreaseRate;
+    }
+    onAttackRatioChange(newRatio) {
+        this.uiState.attackRatio = newRatio;
+        localStorage.setItem("settings.attackRatio", String(newRatio));
+    }
+    onAttackModeChange(mode) {
+        this.attackMode = mode;
+        this.uiState.attackMode = mode;
+        localStorage.setItem("settings.attackMode", mode);
+    }
+    cycleAttackMode() {
+        const currentIndex = ATTACK_MODE_UI.findIndex(({ mode }) => mode === this.attackMode);
+        const next = ATTACK_MODE_UI[(currentIndex + 1 + ATTACK_MODE_UI.length) % ATTACK_MODE_UI.length];
+        this.onAttackModeChange(next.mode);
+    }
+    renderLayer(context) {
+        // Render any necessary canvas elements
+    }
+    shouldTransform() {
+        return false;
+    }
+    setVisibile(visible) {
+        this._isVisible = visible;
+        this.requestUpdate();
+    }
+    handleRatioSliderInput(e) {
+        const value = Number(e.target.value);
+        this.attackRatio = value / 100;
+        this.onAttackRatioChange(this.attackRatio);
+    }
+    committedTroopsPreview() {
+        return attackModeTroopCommitment(this.game?.myPlayer()?.troops() ?? 0, this.attackRatio, this.attackMode);
+    }
+    renderAttackModes() {
+        return html `
+      <div class="grid grid-cols-3 gap-1.5">
+        ${ATTACK_MODE_UI.map(({ mode, label, icon, description }) => html `
+            <button
+              class="flex items-center justify-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold tracking-wide transition-colors ${this
+            .attackMode === mode
+            ? "border-orange-300 bg-orange-500/20 text-orange-100"
+            : "border-gray-600 bg-gray-900/60 text-gray-200 hover:border-gray-400"}"
+              title="${label}: ${description}"
+              @click=${() => this.onAttackModeChange(mode)}
+            >
+              <img src=${icon} alt="" aria-hidden="true" width="13" height="13" />
+              <span>${label}</span>
+            </button>
+          `)}
+      </div>
+    `;
+    }
+    calculateTroopBar() {
+        const base = Math.max(this._maxTroops, 1);
+        const greenPercentRaw = (this._troops / base) * 100;
+        const orangePercentRaw = (this._attackingTroops / base) * 100;
+        const greenPercent = Math.max(0, Math.min(100, greenPercentRaw));
+        const orangePercent = Math.max(0, Math.min(100 - greenPercent, orangePercentRaw));
+        return { greenPercent, orangePercent };
+    }
+    renderMobileTroopBar() {
+        const { greenPercent, orangePercent } = this.calculateTroopBar();
+        return html `
+      <div
+        class="w-full h-6 border border-gray-600 rounded-md bg-gray-900/60 overflow-hidden relative"
+      >
+        <div class="h-full flex">
+          ${greenPercent > 0
+            ? html `<div
+                class="h-full bg-green-500 transition-[width] duration-200"
+                style="width: ${greenPercent}%;"
+              ></div>`
+            : ""}
+          ${orangePercent > 0
+            ? html `<div
+                class="h-full bg-orange-400 transition-[width] duration-200"
+                style="width: ${orangePercent}%;"
+              ></div>`
+            : ""}
+        </div>
+        <div
+          class="absolute inset-0 flex items-center justify-between px-1.5 text-xs font-bold leading-none pointer-events-none"
+          translate="no"
+        >
+          <span class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+            >${renderTroops(this._troops)}</span
+          >
+          <span class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+            >${renderTroops(this._maxTroops)}</span
+          >
+        </div>
+        <div
+          class="absolute inset-0 flex items-center justify-center gap-0.5 pointer-events-none"
+          translate="no"
+        >
+          <img
+            src=${soldierIcon}
+            alt=""
+            aria-hidden="true"
+            width="12"
+            height="12"
+            class="brightness-0 invert drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+          />
+          <span
+            class="text-[10px] font-bold drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] ${this
+            ._troopRateIsIncreasing
+            ? "text-green-400"
+            : "text-orange-400"}"
+            >+${renderTroops(this.troopRate)}/s</span
+          >
+        </div>
+      </div>
+    `;
+    }
+    renderDesktopTroopBar() {
+        const { greenPercent, orangePercent } = this.calculateTroopBar();
+        return html `
+      <div
+        class="w-full h-6 border border-gray-600 rounded-md bg-gray-900/60 overflow-hidden relative"
+      >
+        <div class="h-full flex">
+          ${greenPercent > 0
+            ? html `<div
+                class="h-full bg-green-500 transition-[width] duration-200"
+                style="width: ${greenPercent}%;"
+              ></div>`
+            : ""}
+          ${orangePercent > 0
+            ? html `<div
+                class="h-full bg-orange-400 transition-[width] duration-200"
+                style="width: ${orangePercent}%;"
+              ></div>`
+            : ""}
+        </div>
+        <div
+          class="absolute inset-0 flex items-center justify-start px-1.5 text-xs font-bold leading-none pointer-events-none gap-0.5"
+          translate="no"
+        >
+          <span class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+            >${renderTroops(this._troops)}</span
+          >
+          <span class="text-white/60 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+            >/</span
+          >
+          <span class="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+            >${renderTroops(this._maxTroops)}</span
+          >
+        </div>
+      </div>
+    `;
+    }
+    renderDesktop() {
+        return html `
+      <!-- Row 1: troop rate | troop bar | gold -->
+      <div class="flex gap-1.5 items-center mb-1.5">
+        <!-- Troop rate -->
+        <div
+          class="flex items-center gap-1 shrink-0 border rounded-md font-bold text-xs p-1 w-[5.5rem] ${this
+            ._troopRateIsIncreasing
+            ? "border-green-400"
+            : "border-orange-400"}"
+          translate="no"
+        >
+          <img
+            src=${soldierIcon}
+            alt=""
+            aria-hidden="true"
+            width="13"
+            height="13"
+            class="shrink-0"
+            style="filter: ${this._troopRateIsIncreasing
+            ? "brightness(0) saturate(100%) invert(74%) sepia(44%) saturate(500%) hue-rotate(83deg) brightness(103%)"
+            : "brightness(0) saturate(100%) invert(65%) sepia(60%) saturate(600%) hue-rotate(330deg) brightness(105%)"}"
+          />
+          <span
+            class="text-xs font-bold tabular-nums ${this._troopRateIsIncreasing
+            ? "text-green-400"
+            : "text-orange-400"}"
+            >+${renderTroops(this.troopRate)}/s</span
+          >
+        </div>
+        <!-- Troop bar -->
+        <div class="flex-1">${this.renderDesktopTroopBar()}</div>
+        <!-- Gold -->
+        <div
+          class="flex items-center gap-1 shrink-0 border rounded-md border-yellow-400 font-bold text-yellow-400 text-xs p-1 w-[4.5rem]"
+          translate="no"
+        >
+          <img src=${goldCoinIcon} width="13" height="13" class="shrink-0" />
+          <span class="tabular-nums">${renderNumber(this._gold)}</span>
+        </div>
+      </div>
+      <!-- Row 2: attack ratio | slider -->
+      <div class="grid grid-cols-[16rem,1fr] gap-2 items-start" translate="no">
+        ${this.renderAttackModes()}
+        <div class="flex items-center gap-2">
+          <div
+            class="flex items-center gap-1 shrink-0 border border-gray-600 rounded-md p-1 text-xs font-bold text-white cursor-pointer w-[7rem]"
+          >
+            <img
+              src=${swordIcon}
+              alt=""
+              aria-hidden="true"
+              width="12"
+              height="12"
+              style="filter: brightness(0) invert(1);"
+            />
+            <span
+              >${(this.attackRatio * 100).toFixed(0)}%
+              (${renderTroops(this.committedTroopsPreview())})</span
+            >
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            .value=${String(Math.round(this.attackRatio * 100))}
+            @input=${(e) => this.handleRatioSliderInput(e)}
+            class="flex-1 h-2 accent-blue-500 cursor-pointer"
+          />
+        </div>
+      </div>
+    `;
+    }
+    renderMobile() {
+        return html `
+      <div class="flex gap-2 items-center">
+        <!-- Gold -->
+        <div
+          class="flex items-center justify-center p-1 gap-0.5 border rounded-md border-yellow-400 font-bold text-yellow-400 text-xs w-1/5 shrink-0"
+          translate="no"
+        >
+          <img src=${goldCoinIcon} width="13" height="13" />
+          <span class="px-0.5">${renderNumber(this._gold)}</span>
+        </div>
+        <!-- Troop bar -->
+        <div class="w-[40%] shrink-0 flex items-center">
+          ${this.renderMobileTroopBar()}
+        </div>
+        <!-- Sword + % label -->
+        <div class="flex flex-col items-center shrink-0 gap-0.5" translate="no">
+          <img
+            src=${swordIcon}
+            alt=""
+            aria-hidden="true"
+            width="10"
+            height="10"
+            style="filter: brightness(0) invert(1);"
+          />
+          <span class="text-white text-xs font-bold tabular-nums"
+            >${(this.attackRatio * 100).toFixed(0)}%</span
+          >
+        </div>
+        <!-- Attack ratio slider -->
+        <div class="flex-1" translate="no">
+          <input
+            type="range"
+            min="1"
+            max="100"
+            .value=${String(Math.round(this.attackRatio * 100))}
+            @input=${(e) => this.handleRatioSliderInput(e)}
+            class="w-full h-1.5 accent-blue-500 cursor-pointer"
+          />
+        </div>
+      </div>
+      <div class="mt-2" translate="no">${this.renderAttackModes()}</div>
+    `;
+    }
+    render() {
+        return html `
+      <div
+        class="relative pointer-events-auto ${this._isVisible
+            ? "relative w-full text-sm px-2 py-1.5"
+            : "hidden"}"
+        @contextmenu=${(e) => e.preventDefault()}
+      >
+        <div class="lg:hidden">${this.renderMobile()}</div>
+        <div class="hidden lg:block">${this.renderDesktop()}</div>
+      </div>
+    `;
+    }
+    createRenderRoot() {
+        return this; // Disable shadow DOM to allow Tailwind styles
+    }
+};
+__decorate([
+    state()
+], ControlPanel.prototype, "attackRatio", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "attackMode", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "_maxTroops", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "troopRate", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "_troops", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "_isVisible", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "_gold", void 0);
+__decorate([
+    state()
+], ControlPanel.prototype, "_attackingTroops", void 0);
+ControlPanel = __decorate([
+    customElement("control-panel")
+], ControlPanel);
+export { ControlPanel };
+//# sourceMappingURL=ControlPanel.js.map

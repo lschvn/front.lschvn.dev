@@ -1,0 +1,1 @@
+{"version":3,"file":"NoOpExecution.js","sourceRoot":"","sources":["NoOpExecution.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,aAAa;IACxB,QAAQ;QACN,OAAO,KAAK,CAAC;IACf,CAAC;IACD,sBAAsB;QACpB,OAAO,KAAK,CAAC;IACf,CAAC;IACD,IAAI,CAAC,EAAQ,EAAE,KAAa,IAAS,CAAC;IACtC,IAAI,CAAC,KAAa,IAAS,CAAC;CAC7B"}

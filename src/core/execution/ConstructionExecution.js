@@ -1,0 +1,157 @@
+import { UnitType } from "../game/Game";
+import { CityExecution } from "./CityExecution";
+import { AABatteryExecution } from "./AABatteryExecution";
+import { DefensePostExecution } from "./DefensePostExecution";
+import { FactoryExecution } from "./FactoryExecution";
+import { MirvExecution } from "./MIRVExecution";
+import { MissileSiloExecution } from "./MissileSiloExecution";
+import { NukeExecution } from "./NukeExecution";
+import { PortExecution } from "./PortExecution";
+import { RadarStationExecution } from "./RadarStationExecution";
+import { SAMLauncherExecution } from "./SAMLauncherExecution";
+import { SubmarineExecution } from "./SubmarineExecution";
+import { WarshipExecution } from "./WarshipExecution";
+export class ConstructionExecution {
+    constructor(player, constructionType, tile, rocketDirectionUp) {
+        this.player = player;
+        this.constructionType = constructionType;
+        this.tile = tile;
+        this.rocketDirectionUp = rocketDirectionUp;
+        this.structure = null;
+        this.active = true;
+    }
+    init(mg, ticks) {
+        this.mg = mg;
+        if (this.mg.config().isUnitDisabled(this.constructionType)) {
+            console.warn(`cannot build construction ${this.constructionType} because it is disabled`);
+            this.active = false;
+            return;
+        }
+        if (!this.mg.isValidRef(this.tile)) {
+            console.warn(`cannot build construction invalid tile ${this.tile}`);
+            this.active = false;
+            return;
+        }
+    }
+    tick(ticks) {
+        if (this.structure === null) {
+            const info = this.mg.unitInfo(this.constructionType);
+            // For non-structure units (nukes/naval patrol units), charge once and delegate to specialized executions.
+            const isStructure = this.isStructure(this.constructionType);
+            if (!isStructure) {
+                // Defer validation and gold deduction to the specific execution
+                this.completeConstruction();
+                this.active = false;
+                return;
+            }
+            // Structures: build real unit and mark under construction
+            const spawnTile = this.player.canBuild(this.constructionType, this.tile);
+            if (spawnTile === false) {
+                console.warn(`cannot build ${this.constructionType}`);
+                this.active = false;
+                return;
+            }
+            this.structure = this.player.buildUnit(this.constructionType, spawnTile, {});
+            const duration = info.constructionDuration ?? 0;
+            if (duration > 0) {
+                this.structure.setUnderConstruction(true);
+                this.ticksUntilComplete = duration;
+                return;
+            }
+            // No construction time
+            this.completeConstruction();
+            this.active = false;
+            return;
+        }
+        if (!this.structure.isActive()) {
+            this.active = false;
+            return;
+        }
+        if (this.player !== this.structure.owner()) {
+            this.player = this.structure.owner();
+        }
+        if (this.ticksUntilComplete === 0) {
+            this.player = this.structure.owner();
+            this.completeConstruction();
+            this.active = false;
+            return;
+        }
+        this.ticksUntilComplete--;
+    }
+    completeConstruction() {
+        if (this.structure) {
+            this.structure.setUnderConstruction(false);
+        }
+        const player = this.player;
+        switch (this.constructionType) {
+            case UnitType.AtomBomb:
+            case UnitType.HydrogenBomb:
+                this.mg.addExecution(new NukeExecution(this.constructionType, player, this.tile, null, -1, 0, this.rocketDirectionUp));
+                break;
+            case UnitType.MIRV:
+                this.mg.addExecution(new MirvExecution(player, this.tile));
+                break;
+            case UnitType.Warship:
+                this.mg.addExecution(new WarshipExecution({ owner: player, patrolTile: this.tile }));
+                break;
+            case UnitType.Submarine:
+                this.mg.addExecution(new SubmarineExecution({ owner: player, patrolTile: this.tile }));
+                break;
+            case UnitType.Port:
+                this.mg.addExecution(new PortExecution(this.structure));
+                break;
+            case UnitType.MissileSilo:
+                this.mg.addExecution(new MissileSiloExecution(this.structure));
+                break;
+            case UnitType.DefensePost:
+                this.mg.addExecution(new DefensePostExecution(this.structure));
+                break;
+            case UnitType.SAMLauncher:
+                this.mg.addExecution(new SAMLauncherExecution(player, null, this.structure));
+                break;
+            case UnitType.SonarStation:
+                break;
+            case UnitType.AABattery:
+                this.mg.addExecution(new AABatteryExecution(this.structure));
+                break;
+            case UnitType.RadarStation:
+                this.mg.addExecution(new RadarStationExecution(this.structure));
+                break;
+            case UnitType.Airbase:
+                break;
+            case UnitType.City:
+                this.mg.addExecution(new CityExecution(this.structure));
+                break;
+            case UnitType.Factory:
+                this.mg.addExecution(new FactoryExecution(this.structure));
+                break;
+            default:
+                console.warn(`unit type ${this.constructionType} cannot be constructed`);
+                break;
+        }
+    }
+    isStructure(type) {
+        switch (type) {
+            case UnitType.Port:
+            case UnitType.MissileSilo:
+            case UnitType.DefensePost:
+            case UnitType.SAMLauncher:
+            case UnitType.SonarStation:
+            case UnitType.AABattery:
+            case UnitType.RadarStation:
+            case UnitType.Airbase:
+            case UnitType.City:
+            case UnitType.Factory:
+                return true;
+            default:
+                return false;
+        }
+    }
+    isActive() {
+        return this.active;
+    }
+    activeDuringSpawnPhase() {
+        return false;
+    }
+}
+//# sourceMappingURL=ConstructionExecution.js.map
