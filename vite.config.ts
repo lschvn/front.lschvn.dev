@@ -43,13 +43,24 @@ export default defineConfig(({ mode }) => {
     publicDir: "resources", // Access static assets via import or explicit copy
 
     resolve: {
-      alias: {
-        "protobufjs/minimal": path.resolve(
-          __dirname,
-          "node_modules/protobufjs/minimal.js",
-        ),
-        resources: path.resolve(__dirname, "resources"),
-      },
+      extensions: [".ts", ".tsx", ".mjs", ".js", ".mts", ".jsx", ".json"],
+      alias: [
+        {
+          find: "protobufjs/minimal",
+          replacement: path.resolve(
+            __dirname,
+            "node_modules/protobufjs/minimal.js",
+          ),
+        },
+        {
+          find: /^src\//,
+          replacement: `${path.resolve(__dirname, "src")}/`,
+        },
+        {
+          find: /^resources\//,
+          replacement: `${path.resolve(__dirname, "resources")}/`,
+        },
+      ],
     },
 
     plugins: [

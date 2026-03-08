@@ -9,6 +9,7 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
+      "src/*": ["src/*"],
       "resources/*": ["resources/*"]
     },
     // Emit
