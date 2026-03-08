@@ -8,9 +8,9 @@ import {
 } from "./CosmeticSchemas";
 import type { GameEvent } from "./EventBus";
 import {
+  AirMissionType,
   AllPlayers,
   AttackMode,
-  AirMissionType,
   Difficulty,
   Duos,
   GameMapSize,
@@ -251,6 +251,14 @@ export const GameConfigSchema = z.object({
   playerTeams: TeamCountConfigSchema.optional(),
   goldMultiplier: z.number().min(0.1).max(1000).optional(),
   startingGold: z.number().int().min(0).max(1000000000).optional(),
+  proceduralWorld: z
+    .object({
+      seed: z.string().min(1).max(120),
+      worldSizePreset: z.enum(ProceduralWorldSizePreset),
+      landmassStyle: z.enum(ProceduralLandmassStyle),
+      performancePreset: z.enum(ProceduralPerformancePreset),
+    })
+    .optional(),
 });
 
 export const TeamSchema = z.string();
@@ -742,11 +750,3 @@ export const PartialGameRecordSchema = PartialAnalyticsRecordSchema.extend({
 export type PartialGameRecord = z.infer<typeof PartialGameRecordSchema>;
 
 export type GameRecord = z.infer<typeof GameRecordSchema>;
-  proceduralWorld: z
-    .object({
-      seed: z.string().min(1).max(120),
-      worldSizePreset: z.enum(ProceduralWorldSizePreset),
-      landmassStyle: z.enum(ProceduralLandmassStyle),
-      performancePreset: z.enum(ProceduralPerformancePreset),
-    })
-    .optional(),

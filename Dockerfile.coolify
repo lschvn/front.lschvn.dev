@@ -18,7 +18,7 @@ COPY src ./src
 
 ARG GIT_COMMIT=unknown
 ENV GIT_COMMIT="$GIT_COMMIT"
-RUN npm run build-prod
+RUN npx vite build
 
 FROM base AS prod-deps
 ENV HUSKY=0
