@@ -1,4 +1,10 @@
-import { GameMapSize, ProceduralWorldConfig } from "./Game";
+import {
+  GameMapSize,
+  ProceduralLandmassStyle,
+  ProceduralPerformancePreset,
+  ProceduralWorldConfig,
+  ProceduralWorldSizePreset,
+} from "./Game";
 import { GameMap, GameMapImpl } from "./GameMap";
 import {
   PROCEDURAL_CHUNK_ROWS,
@@ -30,10 +36,11 @@ export function normalizeProceduralConfig(
 ): ProceduralWorldConfig {
   return {
     seed: config?.seed?.trim() || PROCEDURAL_MEGA_WORLD_DEFAULT_SEED,
-    worldSizePreset: config?.worldSizePreset ?? "Mega",
-    landmassStyle: config?.landmassStyle ?? "Balanced",
-    performancePreset: config?.performancePreset ?? "Balanced",
-  } as ProceduralWorldConfig;
+    worldSizePreset: config?.worldSizePreset ?? ProceduralWorldSizePreset.Mega,
+    landmassStyle: config?.landmassStyle ?? ProceduralLandmassStyle.Balanced,
+    performancePreset:
+      config?.performancePreset ?? ProceduralPerformancePreset.Balanced,
+  };
 }
 
 export function createProceduralManifest(
@@ -90,11 +97,11 @@ export async function generateProceduralTerrainMap(
 
   const baseThreshold = PROCEDURAL_LANDMASS_BASE_THRESHOLD[procedural.landmassStyle];
   const styleTurbulence =
-    procedural.landmassStyle === "Fractured World"
+    procedural.landmassStyle === ProceduralLandmassStyle.FracturedWorld
       ? 0.22
-      : procedural.landmassStyle === "Young World"
+      : procedural.landmassStyle === ProceduralLandmassStyle.YoungWorld
         ? 0.1
-        : procedural.landmassStyle === "War Torn"
+        : procedural.landmassStyle === ProceduralLandmassStyle.WarTorn
           ? 0.16
           : 0.13;
 

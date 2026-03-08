@@ -10,6 +10,7 @@ import "./MapDisplay";
 import randomMap from "/images/RandomMap.webp?url";
 
 const featuredMaps: GameMapType[] = [
+  GameMapType.ProceduralMegaWorld,
   GameMapType.World,
   GameMapType.Europe,
   GameMapType.NorthAmerica,

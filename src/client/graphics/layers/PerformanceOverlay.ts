@@ -1,6 +1,8 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { EventBus } from "../../../core/EventBus";
+import { AiLodTier } from "../../../core/execution/utils/AiLod";
+import type { AiLodMetricsSnapshot } from "../../../core/execution/utils/AiLod";
 import { UserSettings } from "../../../core/game/UserSettings";
 import {
   TickMetricsEvent,
@@ -42,6 +44,12 @@ export class PerformanceOverlay extends LitElement implements Layer {
 
   @state()
   private tickDelayMax: number = 0;
+
+  @state()
+  private aiLodBotSummary: string = "0/0/0";
+
+  @state()
+  private aiLodNationSummary: string = "0/0/0";
 
   @state()
   private isVisible: boolean = false;
@@ -474,6 +482,7 @@ export class PerformanceOverlay extends LitElement implements Layer {
 
   private onTickMetricsEvent = (event: TickMetricsEvent) => {
     this.updateTickMetrics(event.tickExecutionDuration, event.tickDelay);
+    this.updateAiLodMetrics(event.aiLodMetrics);
   };
 
   private onUserSettingsChanged = (event: Event) => {
@@ -971,6 +980,12 @@ export class PerformanceOverlay extends LitElement implements Layer {
     }
   }
 
+  private updateAiLodMetrics(metrics?: AiLodMetricsSnapshot) {
+    if (!this.isVisible || !metrics) return;
+    this.aiLodBotSummary = `${metrics.bot[AiLodTier.Active].runs}/${metrics.bot[AiLodTier.Strategic].runs}/${metrics.bot[AiLodTier.Remote].runs}`;
+    this.aiLodNationSummary = `${metrics.nation[AiLodTier.Active].runs}/${metrics.nation[AiLodTier.Strategic].runs}/${metrics.nation[AiLodTier.Remote].runs}`;
+  }
+
   shouldTransform(): boolean {
     return false;
   }
@@ -1178,6 +1193,10 @@ export class PerformanceOverlay extends LitElement implements Layer {
             ${this.uiText.tickDelay}
             <span>${this.tickDelayAvg.toFixed(2)}ms</span>
             (${this.uiText.maxLabel} <span>${this.tickDelayMax}ms</span>)
+          </div>
+          <div class="performance-line">AI LOD bots (A/S/R): ${this.aiLodBotSummary}</div>
+          <div class="performance-line">
+            AI LOD nations (A/S/R): ${this.aiLodNationSummary}
           </div>
           ${this.layerStats.size
             ? html`<div class="layers-section">
